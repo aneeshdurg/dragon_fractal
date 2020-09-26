@@ -8,6 +8,7 @@ precision mediump int;
 #endif
 
 #define PI 3.1415926538
+#define GOLDEN_RATIO 1.6180339887
 
 uniform bool u_render;
 uniform vec2 u_dimensions;
@@ -19,34 +20,39 @@ uniform sampler2D u_texture_1;
 // When set will clear the screen and draw the initial state
 uniform bool u_initialize;
 uniform float u_initial_length;
+uniform float u_iteration;
 
 out vec4 color_out;
 
+bool in_bounds(vec2 target, vec2 lower_bounds, vec2 upper_bounds) {
+    if (target.x <= lower_bounds.x || target.x >= upper_bounds.x)
+        return false;
+
+    if (target.y <= lower_bounds.y || target.y >= upper_bounds.y)
+        return false;
+
+    return true;
+}
+
 void main() {
+    vec2 coords = gl_FragCoord.xy - u_dimensions / 2.0;
+    // coords *= GOLDEN_RATIO;
+
     if (u_render) {
-        color_out =
-            texelFetch(u_texture, ivec2(gl_FragCoord.xy), 0);
-            //texelFetch(u_texture_1, ivec2(gl_FragCoord.xy), 0);
-        return;
+        coords += u_dimensions / 2.0;
 
-        bool dst = texelFetch(u_texture, ivec2(gl_FragCoord.xy), 0).r == 0.0;
-        color_out = vec4(0.0, 0.0, 0.0, 1.0);
+        if (!in_bounds(coords, vec2(0.0, 0.0), u_dimensions)) {
+            color_out = vec4(1.0, 1.0, 1.0, 1.0);
+            return;
+        }
 
-        if (dst)
-            color_out.r = 1.0;
-        bool src = texelFetch(u_texture_1, ivec2(gl_FragCoord.xy), 0).r == 0.0;
-        if (src)
-            color_out.b = 1.0;
+        color_out = texelFetch(u_texture, ivec2(coords), 0);
         return;
     }
 
-    vec2 coords = gl_FragCoord.xy - u_dimensions / 2.0;
-
     if (u_initialize) {
         // draw a line from (0, 0) to (0, 1)
-        bool y_in_range = coords.y > -1.0 && coords.y < 1.0;
-        bool x_in_range = coords.x >= 0.0 && coords.x < u_initial_length;
-        if (y_in_range && x_in_range)
+        if (in_bounds(coords, vec2(0.0, -1.0), vec2(u_initial_length, 1.0)))
             color_out = vec4(0.0, 0.0, 0.0, 1.0);
         else
             color_out = vec4(1.0, 1.0, 1.0, 0.0);
@@ -75,10 +81,9 @@ void main() {
     vec2 final_coords = new_point + u_dimensions / 2.0;
     bool r_true =
         texelFetch(u_texture, ivec2(new_point + u_dimensions / 2.0), 0).a == 1.0;
-    if (final_coords.x < 0.0 || final_coords.x > u_dimensions.x ||
-        final_coords.y < 0.0 || final_coords.y > u_dimensions.y)
+    if (!in_bounds(final_coords, vec2(0.0, 0.0), u_dimensions))
         r_true = false;
-    bool o_true = texelFetch(u_texture, ivec2(gl_FragCoord.xy), 0).a == 1.0;
+    bool o_true = texelFetch(u_texture, ivec2(coords + u_dimensions/2.0), 0).a == 1.0;
     color_out = vec4(1.0, 1.0, 1.0, 0.0);
     if (o_true)
         color_out = vec4(0.0, 0.0, 1.0, 1.0);

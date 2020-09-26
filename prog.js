@@ -11,27 +11,22 @@ class DragonFractal {
     rotate_around_end(point, angle) {
         // transform end to origin
         const transformed_start = [point[0] - this.end[0], point[1] - this.end[1]];
-        console.log("tstart", transformed_start);
 
         // convert to polar coords
         const r = Math.sqrt(Math.pow(transformed_start[0], 2) + Math.pow(transformed_start[1], 2))
         let theta = Math.atan(transformed_start[1] / transformed_start[0]);
         if (transformed_start[0] < 0)
             theta += Math.PI;
-        console.log("polar", r, theta);
 
         theta += angle;
 
-        console.log("rotated polar", r, theta);
         // convert to cartesian coords and undo transform
         const transformed_new_point = [r * Math.cos(theta), r * Math.sin(theta)];
-        console.log("tnew", transformed_new_point);
         return [transformed_new_point[0] + this.end[0], transformed_new_point[1] + this.end[1]]
     }
 
     update_end() {
         this.end = this.rotate_around_end(this.start, ANGLE);
-        console.log("final", this.end);
     }
 
 }
@@ -219,6 +214,9 @@ async function main(canvas, root, fps) {
 
     flipflop();
 
+    let iteration = 0;
+    let iteration_i = 0;
+
     async function run() {
         function draw_angle(angle) {
             twgl.setUniforms(programInfo, {
@@ -242,7 +240,8 @@ async function main(canvas, root, fps) {
                 u_render: true,
                 u_texture: dst(),
                 u_texture_1: src(),
-                u_dimensions: dimensions
+                u_dimensions: dimensions,
+                u_iteration: iteration,
             });
 
             gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -263,6 +262,12 @@ async function main(canvas, root, fps) {
         // coords.
         d.update_end();
         flipflop();
+        iteration_i += 1;
+        if (iteration_i % 4 == 0) {
+            iteration_i = 0;
+            iteration++;
+            console.log("update zoom");
+        }
 
         // ANGLE += Math.PI / 4;
         // if (ANGLE >= 2 * Math.PI)
