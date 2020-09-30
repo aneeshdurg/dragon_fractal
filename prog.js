@@ -5,16 +5,21 @@ class DragonFractal {
         this.start = start;
         this.end = end;
 
-        // TODO track height/width to adjust zoom factor
+        this.left = start[0] < end[0] ? (end[0] - start[0]) : 0;
+        this.right = start[0] > end[0] ? (start[0] - end[0]) : 0;
+        this.up = start[1] < end[1] ? (end[1] - start[1]) : 0;
+        this.down = start[1] > end[1] ? (start[1] - end[1]) : 0;
     }
 
-    rotate_around_end(point, angle) {
+    rotate_around_origin(point, origin, angle) {
         // transform end to origin
-        const transformed_start = [point[0] - this.end[0], point[1] - this.end[1]];
+        const transformed_start = [point[0] - origin[0], point[1] - origin[1]];
 
         // convert to polar coords
         const r = Math.sqrt(Math.pow(transformed_start[0], 2) + Math.pow(transformed_start[1], 2))
         let theta = Math.atan(transformed_start[1] / transformed_start[0]);
+        if (transformed_start[0] == 0 && transformed_start[1] == 0)
+            theta = 0;
         if (transformed_start[0] < 0)
             theta += Math.PI;
 
@@ -22,11 +27,44 @@ class DragonFractal {
 
         // convert to cartesian coords and undo transform
         const transformed_new_point = [r * Math.cos(theta), r * Math.sin(theta)];
-        return [transformed_new_point[0] + this.end[0], transformed_new_point[1] + this.end[1]]
+        return [transformed_new_point[0] + origin[0], transformed_new_point[1] + origin[1]]
+    }
+
+    rotate_around_end(point, angle) {
+        return this.rotate_around_origin(point, this.end, angle);
+    }
+
+    update(angle) {
+        const new_left = this.rotate_around_origin([-1 * this.left, 0], [0, 0], angle);
+        const new_right = this.rotate_around_origin([this.right, 0], [0, 0], angle);
+        const new_up = this.rotate_around_origin([0, this.up], [0, 0], angle);
+        const new_down = this.rotate_around_origin([0, -1 * this.down], [0, 0], angle);
+
+        const next_left = -1 * Math.min(new_left[0], new_right[0], new_up[0], new_down[0], -1 * this.left);
+        const next_right = Math.max(new_left[0], new_right[0], new_up[0], new_down[0], this.right);
+        const next_up = Math.max(new_left[1], new_right[1], new_up[1], new_down[1], this.up);
+        const next_down = -1 * Math.min(new_left[1], new_right[1], new_up[1], new_down[1], -1 * this.down);
+
+        const new_end = this.rotate_around_end(this.start, ANGLE);
+        // need to make new_dirs in terms of next_end
+        return {
+            end: new_end,
+            bounds: [
+                next_left - (this.end[0] - new_end[0]),
+                next_right + (this.end[0] - new_end[0]),
+                next_up + (this.end[1] - new_end[1]),
+                next_down - (this.end[1] - new_end[1]),
+            ]
+        };
     }
 
     update_end() {
-        this.end = this.rotate_around_end(this.start, ANGLE);
+        const new_state = this.update(ANGLE);
+        this.end = new_state.end;
+        this.left = new_state.bounds[0];
+        this.right = new_state.bounds[1];
+        this.up = new_state.bounds[2];
+        this.down = new_state.bounds[3];
     }
 
 }
@@ -258,18 +296,20 @@ async function main(canvas, root, fps) {
 
         draw_angle(ANGLE);
 
-        // TODO zoom out and also compute where the end point is in screen
-        // coords.
         d.update_end();
+
+        // TODO zoom out so that the dimensions below always fit in the display
+        // and only use screen coordinates for computation.
+        console.log("Required dimensions:", Math.ceil(d.right + d.left), Math.ceil(d.up + d.down));
+
         flipflop();
         iteration_i += 1;
         if (iteration_i % 4 == 0) {
             iteration_i = 0;
             iteration++;
-            console.log("update zoom");
         }
 
-        // ANGLE += Math.PI / 4;
+        // ANGLE += Math.PI / 3;
         // if (ANGLE >= 2 * Math.PI)
         //     ANGLE -= 2 * Math.PI;
         setTimeout(run, 500);
