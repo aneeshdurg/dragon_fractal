@@ -104,8 +104,6 @@ const bufferArrays = {
     },
 };
 
-var gl = null;
-
 class FrameBufferManager {
     constructor(gl, dimensions) {
         this.computeDsts = [
@@ -115,6 +113,7 @@ class FrameBufferManager {
         this.fb = gl.createFramebuffer();
 
         this.counter = 0;
+        this.gl = gl;
     }
 
     src() {
@@ -131,12 +130,18 @@ class FrameBufferManager {
     }
 
     bind_dst() {
-        gl.bindFramebuffer(gl.FRAMEBUFFER, this.fb);
-        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.dst(), 0 /* level */);
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fb);
+        this.gl.framebufferTexture2D(
+            this.gl.FRAMEBUFFER,
+            this.gl.COLOR_ATTACHMENT0,
+            this.gl.TEXTURE_2D,
+            this.dst(),
+            0 /* level */
+        );
     }
 }
 
-class DragonFractal {
+class DragonFractalState {
     constructor(start, end) {
         this.start = start;
         this.end = end;
@@ -203,13 +208,17 @@ class DragonFractal {
         this.down = new_state.bounds[3];
     }
 
+    get_scale(left, right, up, down) {
+        return Math.max(left + right, up + down) + 500;
+    }
+
     scale(dimensions) {
         // TODO zoom out so that the dimensions below always fit in the display
         // and only use screen coordinates for computation.
         // console.log("Required dimensions:", Math.ceil(d.right + d.left), Math.ceil(d.up + d.down));
         // if max(dimensions) > 1000
         //   scale to 1000 and adjust d.end to be in screen coords
-        const scale = Math.max(this.left + this.right, this.up + this.down) + 500;
+        const scale = this.get_scale(this.left, this.right, this.up, this.down);
 
         if (scale <= dimensions[0])
             return;
@@ -229,126 +238,143 @@ class DragonFractal {
     }
 }
 
-async function main(canvas, root, fps) {
-    fps = fps || 30;
-    root = root || ".";
+class DragonFractal {
+    dimensions = [1000, 1000];
+    angle = Math.PI / 2;
+    angle_update = null;
 
-    await loadTwgl();
+    line_length = 10;
+    area_length = 10;
 
-    const dimensions = [1000, 1000];
+    steps = 10;
 
-    canvas.width = dimensions[0];
-    canvas.height = dimensions[1];
-    gl = canvas.getContext("webgl2"/*, {premultipliedAlpha: false}*/);
-    if (!gl)
-        throw new Error("Could not initialize webgl2 context! Does your browser support webgl2?");
-    enableGlExts(gl);
+    stop = false;
 
-    const fragShader = await getFile(root + "/compute.frag.c");
-    const programInfo = twgl.createProgramInfo(gl, [vs, fragShader]);
-    const bufferInfo = twgl.createBufferInfoFromArrays(gl, bufferArrays);
-    setupProgram(gl, programInfo, bufferInfo);
+    constructor(canvas, fragShader) {
+        canvas.width = this.dimensions[0];
+        canvas.height = this.dimensions[1];
+        this.gl = canvas.getContext("webgl2"/*, {premultipliedAlpha: false}*/);
+        if (!this.gl)
+            throw new Error("Could not initialize webgl2 context! Does your browser support webgl2?");
+        enableGlExts(this.gl);
 
-    let ANGLE = window.ANGLE || (Math.PI / 2 - Math.PI / 32);
+        this.programInfo = twgl.createProgramInfo(this.gl, [vs, fragShader]);
+        const bufferInfo = twgl.createBufferInfoFromArrays(this.gl, bufferArrays);
+        setupProgram(this.gl, this.programInfo, bufferInfo);
 
-    const line_length = 10;
-    const area_length = 10;
-    const d = new DragonFractal([0, 0], [area_length, 0])
+        this.fbs = new FrameBufferManager(this.gl, this.dimensions);
+        this.state = new DragonFractalState([0, 0], [this.area_length, 0]);
+    }
 
-    const fbs = new FrameBufferManager(gl, dimensions);
+    render_initial() {
+        // Set up parameters for compute
+        twgl.setUniforms(this.programInfo, {
+            u_angle: this.angle,
+            u_dimensions: this.dimensions,
+            u_initialize: true,
+            u_initial_length: this.line_length,
+            u_render: false,
+            u_texture: this.fbs.src(),
+        });
 
-    // Set up parameters for compute
-    twgl.setUniforms(programInfo, {
-        u_angle: ANGLE,
-        u_dimensions: dimensions,
-        u_initialize: true,
-        u_initial_length: line_length,
-        u_render: false,
-        u_texture: fbs.src(),
-    });
+        this.fbs.bind_dst();
+        this.gl.finish();
 
-    fbs.bind_dst();
-    gl.finish();
+        render(this.gl);
+        this.gl.finish();
 
-    render(gl);
-    gl.finish();
+        this.fbs.flipflop();
+    }
 
-    fbs.flipflop();
+    render_angle(angle, scale) {
+        // TODO only use one number for dimensions and always assume square
+        twgl.setUniforms(this.programInfo, {
+            u_angle: angle,
+            u_dimensions: this.dimensions,
+            u_initialize: false,
+            u_render: false,
+            u_texture: this.fbs.src(),
+            u_pivot: this.state.end,
+            u_scale: scale
+        });
 
-    let iteration_i = 0;
+        this.fbs.bind_dst();
+        this.gl.finish();
 
-    let pause = false;
+        render(this.gl);
+        this.gl.finish();
 
-    async function run() {
-        function draw_angle(angle, scale) {
-            // TODO only use one number for dimensions and always assume square
-            twgl.setUniforms(programInfo, {
-                u_angle: angle,
-                u_dimensions: dimensions,
-                u_initialize: false,
-                u_render: false,
-                u_texture: fbs.src(),
-                u_pivot: d.end,
-                u_scale: scale
-            });
+        // Set up parameters for render
+        twgl.setUniforms(this.programInfo, {
+            u_render: true,
+            u_texture: this.fbs.dst(),
+            u_texture_1: this.fbs.src(),
+            u_dimensions: this.dimensions,
+        });
 
-            fbs.bind_dst();
-            gl.finish();
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+        render(this.gl);
+        this.gl.finish();
+    }
 
-            render(gl);
-            gl.finish();
+    start() {
+        this.render_initial();
+        this.run();
+    }
 
-            // Set up parameters for render
-            twgl.setUniforms(programInfo, {
-                u_render: true,
-                u_texture: fbs.dst(),
-                u_texture_1: fbs.src(),
-                u_dimensions: dimensions,
-            });
-
-            gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-            render(gl);
-            gl.finish();
-        }
-
-        const new_state = d.update(ANGLE);
-        const scale = Math.max(
-            new_state.bounds[0] + new_state.bounds[1],
-            new_state.bounds[2] + new_state.bounds[3]
-        ) + 500;
-        let curr_scale = dimensions[0];
+    async run() {
+        const new_state = this.state.update(this.angle);
+        const scale = this.state.get_scale(
+            new_state.bounds[0], new_state.bounds[1], new_state.bounds[2], new_state.bounds[3]
+        );
+        let curr_scale = this.dimensions[0];
         let scale_step = 0;
-        if (scale > dimensions[0])
-            scale_step = (scale - dimensions[0]) / 10;
+        if (scale > curr_scale)
+            scale_step = (scale - curr_scale) / this.steps;
 
 
-        const step = ANGLE / 10;
+        const step = this.angle / this.steps;
         let i = step;
-        while (i < ANGLE) {
+        while (i < this.angle) {
             i += step;
             curr_scale += scale_step;
-            draw_angle(i, curr_scale);
+            this.render_angle(i, curr_scale);
+
             await new Promise(r => setTimeout(r, 20));
         }
 
-        draw_angle(ANGLE, scale);
+        this.render_angle(this.angle, scale);
 
-        d.update_end(ANGLE);
-        d.scale(dimensions);
+        this.state.update_end(this.angle);
+        this.state.scale(this.dimensions);
 
-        fbs.flipflop();
-        iteration_i += 1;
-        if (iteration_i % 4 == 0)
-            iteration_i = 0;
+        this.fbs.flipflop();
 
-        // ANGLE += Math.PI / 3;
-        // if (ANGLE >= 2 * Math.PI)
-        //     ANGLE -= 2 * Math.PI;
-        if (!pause)
-            setTimeout(run, 250);
+        if (this.angle_update)
+            this.angle = this.angle_update(this.angle);
+
+        if (!this.stop)
+            setTimeout(this.run.bind(this), 250);
     }
+}
 
-    run();
+async function main(canvas, root) {
+    root = root || ".";
 
-    return function() { pause = !pause; };
+    await loadTwgl();
+    const fragShader = await getFile(root + "/compute.frag.c");
+
+    const fractal = new DragonFractal(canvas, fragShader);
+    fractal.start();
+
+    // const fractal2 = new DragonFractal(canvas2, fragShader);
+    // fractal2.angle = Math.PI / 4;
+    // fractal2.angle_update = (angle) => {
+    //     let new_angle = angle + Math.PI / 4;
+    //     if (new_angle >= 2 * Math.PI)
+    //         new_angle -= 2 * Math.PI;
+    //     return new_angle;
+    // };
+    // fractal2.start();
+    return fractal;
 }
