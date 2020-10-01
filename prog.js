@@ -250,6 +250,8 @@ class DragonFractal {
 
     stop = false;
 
+    iterations = -1;
+
     constructor(canvas, fragShader) {
         canvas.width = this.dimensions[0];
         canvas.height = this.dimensions[1];
@@ -308,7 +310,6 @@ class DragonFractal {
         twgl.setUniforms(this.programInfo, {
             u_render: true,
             u_texture: this.fbs.dst(),
-            u_texture_1: this.fbs.src(),
             u_dimensions: this.dimensions,
         });
 
@@ -353,7 +354,10 @@ class DragonFractal {
         if (this.angle_update)
             this.angle = this.angle_update(this.angle);
 
-        if (!this.stop)
+        if (this.iterations > 0)
+            this.iterations--;
+
+        if (!this.stop && (this.iterations != 0))
             setTimeout(this.run.bind(this), 250);
     }
 }

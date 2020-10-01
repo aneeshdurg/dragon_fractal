@@ -11,13 +11,13 @@ precision mediump int;
 #define GOLDEN_RATIO 1.6180339887
 
 uniform bool u_render;
+uniform sampler2D u_texture;
+
 uniform vec2 u_dimensions;
 uniform float u_scale;
 uniform float u_angle;
 uniform vec2 u_pivot;
-uniform vec3 u_color;
-uniform sampler2D u_texture;
-uniform sampler2D u_texture_1;
+
 // When set will clear the screen and draw the initial state
 uniform bool u_initialize;
 uniform float u_initial_length;
@@ -34,10 +34,27 @@ bool in_bounds(vec2 target, vec2 lower_bounds, vec2 upper_bounds) {
     return true;
 }
 
+bool active_px_in_area(vec2 coords, float ratio) {
+    bool res = false;
+    for (int i = 0; float(i) < ratio; i++) {
+        for (int j = 0; float(j) < ratio; j++) {
+            vec2 test_coords = coords + vec2(i, j);
+            if (in_bounds(test_coords, vec2(0.0, 0.0), u_dimensions)) {
+                res = res ||
+                    (texelFetch(u_texture, ivec2(test_coords), 0).a == 1.0);
+            }
+        }
+    }
+
+    return res;
+}
+
 void main() {
     vec2 coords = gl_FragCoord.xy - u_dimensions / 2.0;
+    float ratio = 1.0;
     if (u_scale > u_dimensions.x) {
-        coords *= u_scale / u_dimensions.x;
+        ratio = u_scale / u_dimensions.x;
+        coords *= ratio;
     }
 
     if (u_render) {
@@ -80,23 +97,14 @@ void main() {
     vec2 new_point = transformed_point + u_pivot;
 
     // + rotate coordinates and lookup texel
-    vec2 final_new_coords = new_point + u_dimensions / 2.0;
-    bool r_true =
-        texelFetch(u_texture, ivec2(final_new_coords), 0).a == 1.0;
-    if (!in_bounds(final_new_coords, vec2(0.0, 0.0), u_dimensions))
-        r_true = false;
+    bool r_true = active_px_in_area(new_point + u_dimensions / 2.0, ratio);
 
-    vec2 final_coords = coords + u_dimensions / 2.0;
-    bool o_true = texelFetch(u_texture, ivec2(final_coords), 0).a == 1.0;
-    if (!in_bounds(final_coords, vec2(0.0, 0.0), u_dimensions))
-        o_true = false;
+    // + use regular coordinates and lookup texel
+    bool o_true = active_px_in_area(coords + u_dimensions / 2.0, ratio);
 
     color_out = vec4(1.0, 1.0, 1.0, 0.0);
     if (o_true)
         color_out = vec4(0.0, 0.0, 1.0, 1.0);
     if (r_true)
         color_out = vec4(1.0, 0.0, 0.0, 1.0);
-
-    // + use regular coordinates and lookup texel
-    // + apply color
 }
