@@ -1,96 +1,3 @@
-class DragonFractal {
-    constructor(start, end) {
-        this.start = start;
-        this.end = end;
-
-        this.left = start[0] < end[0] ? (end[0] - start[0]) : 0;
-        this.right = start[0] > end[0] ? (start[0] - end[0]) : 0;
-        this.up = start[1] < end[1] ? (end[1] - start[1]) : 0;
-        this.down = start[1] > end[1] ? (start[1] - end[1]) : 0;
-    }
-
-    rotate_around_origin(point, origin, angle) {
-        // transform end to origin
-        const transformed_start = [point[0] - origin[0], point[1] - origin[1]];
-
-        // convert to polar coords
-        const r = Math.sqrt(Math.pow(transformed_start[0], 2) + Math.pow(transformed_start[1], 2))
-        let theta = Math.atan(transformed_start[1] / transformed_start[0]);
-        if (transformed_start[0] == 0 && transformed_start[1] == 0)
-            theta = 0;
-        if (transformed_start[0] < 0)
-            theta += Math.PI;
-
-        theta += angle;
-
-        // convert to cartesian coords and undo transform
-        const transformed_new_point = [r * Math.cos(theta), r * Math.sin(theta)];
-        return [transformed_new_point[0] + origin[0], transformed_new_point[1] + origin[1]]
-    }
-
-    rotate_around_end(point, angle) {
-        return this.rotate_around_origin(point, this.end, angle);
-    }
-
-    update(angle) {
-        const new_left = this.rotate_around_origin([-1 * this.left, 0], [0, 0], angle);
-        const new_right = this.rotate_around_origin([this.right, 0], [0, 0], angle);
-        const new_up = this.rotate_around_origin([0, this.up], [0, 0], angle);
-        const new_down = this.rotate_around_origin([0, -1 * this.down], [0, 0], angle);
-
-        const next_left = -1 * Math.min(new_left[0], new_right[0], new_up[0], new_down[0], -1 * this.left);
-        const next_right = Math.max(new_left[0], new_right[0], new_up[0], new_down[0], this.right);
-        const next_up = Math.max(new_left[1], new_right[1], new_up[1], new_down[1], this.up);
-        const next_down = -1 * Math.min(new_left[1], new_right[1], new_up[1], new_down[1], -1 * this.down);
-
-        const new_end = this.rotate_around_end(this.start, angle);
-        // need to make new_dirs in terms of next_end
-        return {
-            end: new_end,
-            bounds: [
-                next_left - (this.end[0] - new_end[0]),
-                next_right + (this.end[0] - new_end[0]),
-                next_up + (this.end[1] - new_end[1]),
-                next_down - (this.end[1] - new_end[1]),
-            ]
-        };
-    }
-
-    update_end(angle) {
-        const new_state = this.update(angle);
-        this.end = new_state.end;
-        this.left = new_state.bounds[0];
-        this.right = new_state.bounds[1];
-        this.up = new_state.bounds[2];
-        this.down = new_state.bounds[3];
-    }
-
-    scale(dimensions) {
-        // TODO zoom out so that the dimensions below always fit in the display
-        // and only use screen coordinates for computation.
-        // console.log("Required dimensions:", Math.ceil(d.right + d.left), Math.ceil(d.up + d.down));
-        // if max(dimensions) > 1000
-        //   scale to 1000 and adjust d.end to be in screen coords
-        const scale = Math.max(this.left + this.right, this.up + this.down) + 500;
-
-        if (scale <= dimensions[0])
-            return;
-
-        const ratio = dimensions[0]/scale;
-
-        this.end[0] *= ratio;
-        this.end[1] *= ratio;
-
-        this.start[0] *= ratio;
-        this.start[1] *= ratio;
-
-        this.left *= ratio;
-        this.right *= ratio;
-        this.up *= ratio;
-        this.down *= ratio;
-    }
-}
-
 async function loadTwgl() {
     const p = new Promise((resolve) => {
         const script = document.createElement("script");
@@ -198,6 +105,130 @@ const bufferArrays = {
 };
 
 var gl = null;
+
+class FrameBufferManager {
+    constructor(gl, dimensions) {
+        this.computeDsts = [
+            createTexture(gl, dimensions, null),
+            createTexture(gl, dimensions, null)
+        ];
+        this.fb = gl.createFramebuffer();
+
+        this.counter = 0;
+    }
+
+    src() {
+        return this.computeDsts[this.counter];
+    }
+
+    dst() {
+        return this.computeDsts[(this.counter + 1) % 2];
+    }
+
+    flipflop() {
+        this.counter = this.counter + 1;
+        this.counter %= 2;
+    }
+
+    bind_dst() {
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this.fb);
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.dst(), 0 /* level */);
+    }
+}
+
+class DragonFractal {
+    constructor(start, end) {
+        this.start = start;
+        this.end = end;
+
+        this.left = start[0] < end[0] ? (end[0] - start[0]) : 0;
+        this.right = start[0] > end[0] ? (start[0] - end[0]) : 0;
+        this.up = start[1] < end[1] ? (end[1] - start[1]) : 0;
+        this.down = start[1] > end[1] ? (start[1] - end[1]) : 0;
+    }
+
+    rotate_around_origin(point, origin, angle) {
+        // transform end to origin
+        const transformed_start = [point[0] - origin[0], point[1] - origin[1]];
+
+        // convert to polar coords
+        const r = Math.sqrt(Math.pow(transformed_start[0], 2) + Math.pow(transformed_start[1], 2))
+        let theta = Math.atan(transformed_start[1] / transformed_start[0]);
+        if (transformed_start[0] == 0 && transformed_start[1] == 0)
+            theta = 0;
+        if (transformed_start[0] < 0)
+            theta += Math.PI;
+
+        theta += angle;
+
+        // convert to cartesian coords and undo transform
+        const transformed_new_point = [r * Math.cos(theta), r * Math.sin(theta)];
+        return [transformed_new_point[0] + origin[0], transformed_new_point[1] + origin[1]]
+    }
+
+    rotate_around_end(point, angle) {
+        return this.rotate_around_origin(point, this.end, angle);
+    }
+
+    update(angle) {
+        const new_left = this.rotate_around_origin([-1 * this.left, 0], [0, 0], angle);
+        const new_right = this.rotate_around_origin([this.right, 0], [0, 0], angle);
+        const new_up = this.rotate_around_origin([0, this.up], [0, 0], angle);
+        const new_down = this.rotate_around_origin([0, -1 * this.down], [0, 0], angle);
+
+        const next_left = -1 * Math.min(new_left[0], new_right[0], new_up[0], new_down[0], -1 * this.left);
+        const next_right = Math.max(new_left[0], new_right[0], new_up[0], new_down[0], this.right);
+        const next_up = Math.max(new_left[1], new_right[1], new_up[1], new_down[1], this.up);
+        const next_down = -1 * Math.min(new_left[1], new_right[1], new_up[1], new_down[1], -1 * this.down);
+
+        const new_end = this.rotate_around_end(this.start, angle);
+        // need to make new_dirs in terms of next_end
+        return {
+            end: new_end,
+            bounds: [
+                next_left - (this.end[0] - new_end[0]),
+                next_right + (this.end[0] - new_end[0]),
+                next_up + (this.end[1] - new_end[1]),
+                next_down - (this.end[1] - new_end[1]),
+            ]
+        };
+    }
+
+    update_end(angle) {
+        const new_state = this.update(angle);
+        this.end = new_state.end;
+        this.left = new_state.bounds[0];
+        this.right = new_state.bounds[1];
+        this.up = new_state.bounds[2];
+        this.down = new_state.bounds[3];
+    }
+
+    scale(dimensions) {
+        // TODO zoom out so that the dimensions below always fit in the display
+        // and only use screen coordinates for computation.
+        // console.log("Required dimensions:", Math.ceil(d.right + d.left), Math.ceil(d.up + d.down));
+        // if max(dimensions) > 1000
+        //   scale to 1000 and adjust d.end to be in screen coords
+        const scale = Math.max(this.left + this.right, this.up + this.down) + 500;
+
+        if (scale <= dimensions[0])
+            return;
+
+        const ratio = dimensions[0]/scale;
+
+        this.end[0] *= ratio;
+        this.end[1] *= ratio;
+
+        this.start[0] *= ratio;
+        this.start[1] *= ratio;
+
+        this.left *= ratio;
+        this.right *= ratio;
+        this.up *= ratio;
+        this.down *= ratio;
+    }
+}
+
 async function main(canvas, root, fps) {
     fps = fps || 30;
     root = root || ".";
@@ -215,39 +246,16 @@ async function main(canvas, root, fps) {
 
     const fragShader = await getFile(root + "/compute.frag.c");
     const programInfo = twgl.createProgramInfo(gl, [vs, fragShader]);
-
     const bufferInfo = twgl.createBufferInfoFromArrays(gl, bufferArrays);
     setupProgram(gl, programInfo, bufferInfo);
-
-    const computeDsts = [
-        createTexture(gl, dimensions, null),
-        createTexture(gl, dimensions, null)
-    ];
-    const fb = gl.createFramebuffer();
-
-    const domain = new Float32Array([-2, 2]);
-    const range = new Float32Array([-2, 2]);
-
-    let counter = 0;
-
-    function src() {
-        return computeDsts[counter];
-    }
-
-    function dst() {
-        return computeDsts[(counter + 1) % 2];
-    }
-
-    function flipflop() {
-        counter = counter + 1;
-        counter %= 2;
-    }
 
     let ANGLE = window.ANGLE || (Math.PI / 2 - Math.PI / 32);
 
     const line_length = 10;
     const area_length = 10;
     const d = new DragonFractal([0, 0], [area_length, 0])
+
+    const fbs = new FrameBufferManager(gl, dimensions);
 
     // Set up parameters for compute
     twgl.setUniforms(programInfo, {
@@ -256,19 +264,17 @@ async function main(canvas, root, fps) {
         u_initialize: true,
         u_initial_length: line_length,
         u_render: false,
-        u_texture: src(),
+        u_texture: fbs.src(),
     });
 
-    gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
-    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, dst(), 0 /* level */);
+    fbs.bind_dst();
     gl.finish();
 
     render(gl);
     gl.finish();
 
-    flipflop();
+    fbs.flipflop();
 
-    let iteration = 0;
     let iteration_i = 0;
 
     let pause = false;
@@ -281,13 +287,12 @@ async function main(canvas, root, fps) {
                 u_dimensions: dimensions,
                 u_initialize: false,
                 u_render: false,
-                u_texture: src(),
+                u_texture: fbs.src(),
                 u_pivot: d.end,
                 u_scale: scale
             });
 
-            gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
-            gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, dst(), 0 /* level */);
+            fbs.bind_dst();
             gl.finish();
 
             render(gl);
@@ -296,10 +301,9 @@ async function main(canvas, root, fps) {
             // Set up parameters for render
             twgl.setUniforms(programInfo, {
                 u_render: true,
-                u_texture: dst(),
-                u_texture_1: src(),
+                u_texture: fbs.dst(),
+                u_texture_1: fbs.src(),
                 u_dimensions: dimensions,
-                u_iteration: iteration,
             });
 
             gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -332,12 +336,10 @@ async function main(canvas, root, fps) {
         d.update_end(ANGLE);
         d.scale(dimensions);
 
-        flipflop();
+        fbs.flipflop();
         iteration_i += 1;
-        if (iteration_i % 4 == 0) {
+        if (iteration_i % 4 == 0)
             iteration_i = 0;
-            iteration++;
-        }
 
         // ANGLE += Math.PI / 3;
         // if (ANGLE >= 2 * Math.PI)

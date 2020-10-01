@@ -21,7 +21,6 @@ uniform sampler2D u_texture_1;
 // When set will clear the screen and draw the initial state
 uniform bool u_initialize;
 uniform float u_initial_length;
-uniform float u_iteration;
 
 out vec4 color_out;
 
