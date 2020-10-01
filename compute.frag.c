@@ -12,6 +12,7 @@ precision mediump int;
 
 uniform bool u_render;
 uniform vec2 u_dimensions;
+uniform float u_scale;
 uniform float u_angle;
 uniform vec2 u_pivot;
 uniform vec3 u_color;
@@ -36,7 +37,9 @@ bool in_bounds(vec2 target, vec2 lower_bounds, vec2 upper_bounds) {
 
 void main() {
     vec2 coords = gl_FragCoord.xy - u_dimensions / 2.0;
-    // coords *= GOLDEN_RATIO;
+    if (u_scale > u_dimensions.x) {
+        coords *= u_scale / u_dimensions.x;
+    }
 
     if (u_render) {
         coords += u_dimensions / 2.0;
@@ -78,12 +81,17 @@ void main() {
     vec2 new_point = transformed_point + u_pivot;
 
     // + rotate coordinates and lookup texel
-    vec2 final_coords = new_point + u_dimensions / 2.0;
+    vec2 final_new_coords = new_point + u_dimensions / 2.0;
     bool r_true =
-        texelFetch(u_texture, ivec2(new_point + u_dimensions / 2.0), 0).a == 1.0;
-    if (!in_bounds(final_coords, vec2(0.0, 0.0), u_dimensions))
+        texelFetch(u_texture, ivec2(final_new_coords), 0).a == 1.0;
+    if (!in_bounds(final_new_coords, vec2(0.0, 0.0), u_dimensions))
         r_true = false;
-    bool o_true = texelFetch(u_texture, ivec2(coords + u_dimensions/2.0), 0).a == 1.0;
+
+    vec2 final_coords = coords + u_dimensions / 2.0;
+    bool o_true = texelFetch(u_texture, ivec2(final_coords), 0).a == 1.0;
+    if (!in_bounds(final_coords, vec2(0.0, 0.0), u_dimensions))
+        o_true = false;
+
     color_out = vec4(1.0, 1.0, 1.0, 0.0);
     if (o_true)
         color_out = vec4(0.0, 0.0, 1.0, 1.0);

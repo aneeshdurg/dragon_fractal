@@ -1,5 +1,3 @@
-let ANGLE = Math.PI / 2;
-
 class DragonFractal {
     constructor(start, end) {
         this.start = start;
@@ -45,7 +43,7 @@ class DragonFractal {
         const next_up = Math.max(new_left[1], new_right[1], new_up[1], new_down[1], this.up);
         const next_down = -1 * Math.min(new_left[1], new_right[1], new_up[1], new_down[1], -1 * this.down);
 
-        const new_end = this.rotate_around_end(this.start, ANGLE);
+        const new_end = this.rotate_around_end(this.start, angle);
         // need to make new_dirs in terms of next_end
         return {
             end: new_end,
@@ -58,8 +56,8 @@ class DragonFractal {
         };
     }
 
-    update_end() {
-        const new_state = this.update(ANGLE);
+    update_end(angle) {
+        const new_state = this.update(angle);
         this.end = new_state.end;
         this.left = new_state.bounds[0];
         this.right = new_state.bounds[1];
@@ -67,6 +65,30 @@ class DragonFractal {
         this.down = new_state.bounds[3];
     }
 
+    scale(dimensions) {
+        // TODO zoom out so that the dimensions below always fit in the display
+        // and only use screen coordinates for computation.
+        // console.log("Required dimensions:", Math.ceil(d.right + d.left), Math.ceil(d.up + d.down));
+        // if max(dimensions) > 1000
+        //   scale to 1000 and adjust d.end to be in screen coords
+        const scale = Math.max(this.left + this.right, this.up + this.down) + 500;
+
+        if (scale <= dimensions[0])
+            return;
+
+        const ratio = dimensions[0]/scale;
+
+        this.end[0] *= ratio;
+        this.end[1] *= ratio;
+
+        this.start[0] *= ratio;
+        this.start[1] *= ratio;
+
+        this.left *= ratio;
+        this.right *= ratio;
+        this.up *= ratio;
+        this.down *= ratio;
+    }
 }
 
 async function loadTwgl() {
@@ -221,13 +243,7 @@ async function main(canvas, root, fps) {
         counter %= 2;
     }
 
-    let lastRender = 0;
-    const mspf = 1000/fps;
-    // function step(time) {
-    //     if ((time - lastRender) < mspf) {
-    //         requestAnimationFrame(step);
-    //         return;
-    //     }
+    let ANGLE = window.ANGLE || (Math.PI / 2 - Math.PI / 32);
 
     const line_length = 10;
     const area_length = 10;
@@ -255,15 +271,19 @@ async function main(canvas, root, fps) {
     let iteration = 0;
     let iteration_i = 0;
 
+    let pause = false;
+
     async function run() {
-        function draw_angle(angle) {
+        function draw_angle(angle, scale) {
+            // TODO only use one number for dimensions and always assume square
             twgl.setUniforms(programInfo, {
                 u_angle: angle,
                 u_dimensions: dimensions,
                 u_initialize: false,
                 u_render: false,
                 u_texture: src(),
-                u_pivot: d.end
+                u_pivot: d.end,
+                u_scale: scale
             });
 
             gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
@@ -287,20 +307,30 @@ async function main(canvas, root, fps) {
             gl.finish();
         }
 
-        let i = 0.1;
+        const new_state = d.update(ANGLE);
+        const scale = Math.max(
+            new_state.bounds[0] + new_state.bounds[1],
+            new_state.bounds[2] + new_state.bounds[3]
+        ) + 500;
+        let curr_scale = dimensions[0];
+        let scale_step = 0;
+        if (scale > dimensions[0])
+            scale_step = (scale - dimensions[0]) / 10;
+
+
+        const step = ANGLE / 10;
+        let i = step;
         while (i < ANGLE) {
-            i += 0.1;
-            draw_angle(i);
-            await new Promise(r => setTimeout(r, 10));
+            i += step;
+            curr_scale += scale_step;
+            draw_angle(i, curr_scale);
+            await new Promise(r => setTimeout(r, 20));
         }
 
-        draw_angle(ANGLE);
+        draw_angle(ANGLE, scale);
 
-        d.update_end();
-
-        // TODO zoom out so that the dimensions below always fit in the display
-        // and only use screen coordinates for computation.
-        console.log("Required dimensions:", Math.ceil(d.right + d.left), Math.ceil(d.up + d.down));
+        d.update_end(ANGLE);
+        d.scale(dimensions);
 
         flipflop();
         iteration_i += 1;
@@ -312,8 +342,11 @@ async function main(canvas, root, fps) {
         // ANGLE += Math.PI / 3;
         // if (ANGLE >= 2 * Math.PI)
         //     ANGLE -= 2 * Math.PI;
-        setTimeout(run, 500);
+        if (!pause)
+            setTimeout(run, 250);
     }
 
     run();
+
+    return function() { pause = !pause; };
 }
